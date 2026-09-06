@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Staging view parsing raw customer JSON documents into typed relational columns"
+    columns:
+      - name: customer_id
+        description: "Customer natural identifier"
+        tests:
+          - not_null
+      - name: email
+        tests:
+          - not_null
+      - name: state
+        tests:
+          - not_null
+
+  - name: stg_products
+    description: "Staging view extracting product catalog specs and cost/price numbers"
+    columns:
+      - name: product_id
+        description: "Unique product natural key"
+        tests:
+          - unique
+          - not_null
+      - name: unit_cost
+        tests:
+          - not_null
+      - name: retail_price
+        tests:
+          - not_null
+
+  - name: stg_sessions
+    description: "Staging view parsing user web sessions and traffic channels"
+    columns:
+      - name: session_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: stg_orders
+    description: "Staging view extracting order header transactions"
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+      - name: net_revenue
+        tests:
+          - not_null
+
+  - name: stg_order_items
+    description: "Staging view extracting line-item breakdown per purchase order"
+    columns:
+      - name: order_item_id
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        tests:
+          - not_null
+      - name: product_id
+        tests:
+          - not_null

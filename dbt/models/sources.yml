@@ -1,0 +1,44 @@
+version: 2
+
+sources:
+  - name: raw
+    database: warehouse
+    schema: raw
+    tables:
+      - name: raw_customers
+        description: "Raw landing table containing customer records and update events as JSONB payloads"
+        columns:
+          - name: id
+            description: "Surrogate auto-increment ID generated upon ingestion"
+          - name: payload
+            description: "JSONB document with customer attributes and timestamp metadata"
+          - name: _ingested_at
+            description: "Timestamp when payload was written to raw schema"
+
+      - name: raw_products
+        description: "Raw landing table containing product catalog specifications and price lists as JSONB"
+        columns:
+          - name: id
+          - name: payload
+          - name: _ingested_at
+
+      - name: raw_sessions
+        description: "Raw landing table containing customer digital clickstream and session records"
+        columns:
+          - name: id
+          - name: payload
+          - name: _ingested_at
+
+      - name: raw_orders
+        description: "Raw landing table containing transactional purchase orders"
+        columns:
+          - name: id
+          - name: payload
+          - name: _ingested_at
+
+      - name: raw_order_items
+        description: "Raw landing table containing line item detail for purchase orders"
+        columns:
+          - name: id
+          - name: payload
+          - name: _ingested_at

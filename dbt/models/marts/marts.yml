@@ -1,0 +1,120 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "Kimball SCD Type 2 dimension tracking customer attributes, states, and history"
+    columns:
+      - name: customer_key
+        description: "Surrogate primary key for customer dimension version"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Natural key identifier"
+        tests:
+          - not_null
+      - name: email
+        tests:
+          - not_null
+      - name: state
+        tests:
+          - not_null
+      - name: valid_from
+        tests:
+          - not_null
+      - name: is_current
+        tests:
+          - not_null
+
+  - name: dim_products
+    description: "Catalog dimension containing product hierarchies, unit costs, and retail prices"
+    columns:
+      - name: product_key
+        description: "Surrogate primary key for product dimension"
+        tests:
+          - unique
+          - not_null
+      - name: product_id
+        description: "Natural key identifier"
+        tests:
+          - unique
+          - not_null
+      - name: unit_cost
+        tests:
+          - not_null
+      - name: retail_price
+        tests:
+          - not_null
+
+  - name: dim_date
+    description: "Conformed calendar dimension for temporal aggregation and fiscal slicing"
+    columns:
+      - name: date_key
+        description: "YYYYMMDD integer primary key"
+        tests:
+          - unique
+          - not_null
+      - name: full_date
+        tests:
+          - unique
+          - not_null
+      - name: day_of_week
+        tests:
+          - not_null
+      - name: fiscal_quarter
+        tests:
+          - not_null
+
+  - name: fct_orders
+    description: "Kimball transactional fact table at the grain of one row per order line item"
+    columns:
+      - name: fct_order_item_key
+        description: "Surrogate primary key for fact record"
+        tests:
+          - unique
+          - not_null
+      - name: order_item_id
+        description: "Degenerate item natural key"
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        description: "Order header natural key"
+        tests:
+          - not_null
+      - name: customer_key
+        description: "Foreign key to dim_customers (historical SCD2 version active at purchase)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_key
+      - name: product_key
+        description: "Foreign key to dim_products"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_products')
+              field: product_key
+      - name: order_date_key
+        description: "Foreign key to dim_date"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: quantity
+        tests:
+          - not_null
+      - name: gross_amount
+        tests:
+          - not_null
+      - name: net_revenue
+        tests:
+          - not_null
+      - name: cogs
+        tests:
+          - not_null
+      - name: gross_profit
+        tests:
+          - not_null

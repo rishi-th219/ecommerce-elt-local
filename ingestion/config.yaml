@@ -1,0 +1,33 @@
+# Ingestion & Generator Configuration
+seed: 42
+
+scale:
+  num_customers: 250
+  num_products: 60
+  num_orders: 1200
+  max_items_per_order: 4
+  num_sessions: 2000
+  customer_updates_pct: 0.20 # 20% of customers have updated address/state to test SCD Type 2
+
+date_range:
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+
+storage:
+  mode: "filesystem" # options: "filesystem", "minio"
+  local_bronze_dir: "data/bronze"
+  minio:
+    endpoint: "localhost:9000"
+    docker_endpoint: "http://minio:9000"
+    bucket: "bronze"
+    access_key: "minioadmin"
+    secret_key: "minioadmin"
+
+database:
+  host: "localhost"
+  docker_host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "warehouse"
+  raw_schema: "raw"

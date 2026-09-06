@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: int_sessions
+    description: "Intermediate model aggregating session metadata, durations, and order conversion revenue attribution"
+    columns:
+      - name: session_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: int_order_margins
+    description: "Intermediate grain-level join computing line revenue, COGS, and gross profit margins"
+    columns:
+      - name: order_item_id
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        tests:
+          - not_null
+      - name: net_revenue
+        tests:
+          - not_null
+      - name: cogs
+        tests:
+          - not_null
