@@ -42,6 +42,17 @@ def pipeline_success_summary(**context):
     logging.info(f"✅ [ELT SUCCESS] Pipeline finished successfully for Run: {run_id} at {execution_date}")
     logging.info("All layers (Bronze, Silver, Gold Marts) refreshed and tested.")
 
+# Shared environment for DBT and ingestion tasks
+SHARED_ENV = {
+    "PATH": "/home/airflow/.local/bin:/usr/local/bin:/usr/bin:/bin",
+    "PYTHONPATH": "/opt/airflow",
+    "POSTGRES_HOST": "postgres",
+    "POSTGRES_PORT": "5432",
+    "POSTGRES_USER": "postgres",
+    "POSTGRES_PASSWORD": "postgres",
+    "POSTGRES_DB": "warehouse",
+}
+
 with DAG(
     dag_id="ecommerce_elt_pipeline",
     default_args=default_args,
@@ -58,88 +69,49 @@ with DAG(
     land_bronze = BashOperator(
         task_id="land_bronze_data",
         bash_command="cd /opt/airflow && python -m ingestion.load_to_bronze",
-        env={
-            "PYTHONPATH": "/opt/airflow",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 2: Load bronze JSON to Postgres 'raw' schema
     load_raw_postgres = BashOperator(
         task_id="load_raw_to_postgres",
         bash_command="cd /opt/airflow && python -m ingestion.load_to_postgres",
-        env={
-            "PYTHONPATH": "/opt/airflow",
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 3: Install dbt package dependencies
     dbt_deps = BashOperator(
         task_id="dbt_deps",
         bash_command="cd /opt/airflow/dbt && dbt deps --profiles-dir /opt/airflow/dbt",
-        env={
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 4: Run dbt staging layer
     dbt_run_staging = BashOperator(
         task_id="dbt_run_staging",
         bash_command="cd /opt/airflow/dbt && dbt run --select staging --profiles-dir /opt/airflow/dbt",
-        env={
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 5: Run dbt intermediate layer
     dbt_run_intermediate = BashOperator(
         task_id="dbt_run_intermediate",
         bash_command="cd /opt/airflow/dbt && dbt run --select intermediate --profiles-dir /opt/airflow/dbt",
-        env={
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 6: Run dbt marts (star schema & SCD2)
     dbt_run_marts = BashOperator(
         task_id="dbt_run_marts",
         bash_command="cd /opt/airflow/dbt && dbt run --select marts --profiles-dir /opt/airflow/dbt",
-        env={
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 7: Run all dbt data quality & referential integrity tests
     dbt_test = BashOperator(
         task_id="dbt_test",
         bash_command="cd /opt/airflow/dbt && dbt test --profiles-dir /opt/airflow/dbt",
-        env={
-            "POSTGRES_HOST": "postgres",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "postgres",
-            "POSTGRES_PASSWORD": "postgres",
-            "POSTGRES_DB": "warehouse",
-        },
+        env=SHARED_ENV,
     )
 
     # Task 8: Pipeline audit & success notification
