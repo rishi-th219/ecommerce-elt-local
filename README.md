@@ -1,4 +1,4 @@
-# Local ELT E-Commerce Data Warehouse (Microsoft SQL Server + dbt + Airflow + Power BI)
+# Local ELT E-Commerce Data Warehouse (Microsoft SQL Server + dbt + Airflow + Metabase)
 
 [![dbt](https://img.shields.io/badge/dbt-Core%201.8%2B-FF694B?logo=dbt&logoColor=white)](https://www.getdbt.com/)
 [![MSSQL](https://img.shields.io/badge/Microsoft%20SQL%20Server-2025-CC292B?logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
