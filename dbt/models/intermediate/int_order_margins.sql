@@ -38,17 +38,17 @@ select
     oi.quantity,
     oi.unit_price,
     p.unit_cost,
-    round((oi.quantity * oi.unit_price)::numeric, 2) as gross_amount,
+    cast(round(oi.quantity * oi.unit_price, 2) as numeric(12, 2)) as gross_amount,
     oi.discount_amount,
-    round(((oi.quantity * oi.unit_price) - oi.discount_amount)::numeric, 2) as net_revenue,
-    round((oi.quantity * p.unit_cost)::numeric, 2) as cogs,
-    round((((oi.quantity * oi.unit_price) - oi.discount_amount) - (oi.quantity * p.unit_cost))::numeric, 2) as gross_profit,
-    round(
+    cast(round((oi.quantity * oi.unit_price) - oi.discount_amount, 2) as numeric(12, 2)) as net_revenue,
+    cast(round(oi.quantity * p.unit_cost, 2) as numeric(12, 2)) as cogs,
+    cast(round(((oi.quantity * oi.unit_price) - oi.discount_amount) - (oi.quantity * p.unit_cost), 2) as numeric(12, 2)) as gross_profit,
+    cast(round(
         (
             (((oi.quantity * oi.unit_price) - oi.discount_amount) - (oi.quantity * p.unit_cost)) 
-            / nullif(((oi.quantity * oi.unit_price) - oi.discount_amount), 0) * 100
-        )::numeric, 2
-    ) as profit_margin_pct
+            / nullif(((oi.quantity * oi.unit_price) - oi.discount_amount), 0) * 100.0
+        ), 2
+    ) as numeric(10, 2)) as profit_margin_pct
 from order_items oi
 inner join orders o
     on oi.order_id = o.order_id

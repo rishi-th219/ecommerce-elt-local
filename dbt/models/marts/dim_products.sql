@@ -10,6 +10,6 @@ select
     category,
     unit_cost,
     retail_price,
-    round(((retail_price - unit_cost) / nullif(retail_price, 0) * 100)::numeric, 2) as baseline_margin_pct,
+    cast(round(((retail_price - unit_cost) / nullif(retail_price, 0) * 100.0), 2) as numeric(10, 2)) as baseline_margin_pct,
     created_at
 from products

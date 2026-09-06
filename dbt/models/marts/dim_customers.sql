@@ -47,7 +47,7 @@ scd2_dimensions as (
         created_at,
         updated_at as valid_from,
         next_updated_at as valid_to,
-        case when next_updated_at is null then true else false end as is_current
+        cast(case when next_updated_at is null then 1 else 0 end as {% if target.type == 'sqlserver' %}bit{% else %}boolean{% endif %}) as is_current
     from ordered_records
 )
 

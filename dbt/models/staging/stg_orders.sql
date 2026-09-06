@@ -7,14 +7,14 @@ with source_data as (
 )
 
 select
-    (payload->>'order_id')::varchar(64) as order_id,
-    (payload->>'customer_id')::varchar(64) as customer_id,
-    (payload->>'session_id')::varchar(64) as session_id,
-    (payload->>'order_date')::timestamp as order_date,
-    (payload->>'order_status')::varchar(50) as order_status,
-    (payload->>'payment_method')::varchar(50) as payment_method,
-    (payload->>'gross_amount')::numeric(12, 2) as gross_amount,
-    (payload->>'discount_amount')::numeric(12, 2) as discount_amount,
-    (payload->>'net_revenue')::numeric(12, 2) as net_revenue,
+    cast({{ json_extract('payload', 'order_id') }} as varchar(64)) as order_id,
+    cast({{ json_extract('payload', 'customer_id') }} as varchar(64)) as customer_id,
+    cast({{ json_extract('payload', 'session_id') }} as varchar(64)) as session_id,
+    cast({{ json_extract('payload', 'order_date') }} as {{ dbt.type_timestamp() }}) as order_date,
+    cast({{ json_extract('payload', 'order_status') }} as varchar(50)) as order_status,
+    cast({{ json_extract('payload', 'payment_method') }} as varchar(50)) as payment_method,
+    cast({{ json_extract('payload', 'gross_amount') }} as numeric(12, 2)) as gross_amount,
+    cast({{ json_extract('payload', 'discount_amount') }} as numeric(12, 2)) as discount_amount,
+    cast({{ json_extract('payload', 'net_revenue') }} as numeric(12, 2)) as net_revenue,
     _ingested_at
 from source_data

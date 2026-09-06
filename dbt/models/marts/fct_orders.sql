@@ -19,7 +19,7 @@ select
         dc_current.customer_key
     ) as customer_key,
     dp.product_key,
-    to_char(m.order_date, 'YYYYMMDD')::integer as order_date_key,
+    {{ date_to_key('m.order_date') }} as order_date_key,
     m.session_id,
     m.order_date as order_timestamp,
     m.order_status,
@@ -40,6 +40,6 @@ left join dim_customers dc_exact
     and (m.order_date < dc_exact.valid_to or dc_exact.valid_to is null)
 left join dim_customers dc_current
     on m.customer_id = dc_current.customer_id
-    and dc_current.is_current = true
+    and dc_current.is_current = {% if target.type == 'sqlserver' %}1{% else %}true{% endif %}
 left join dim_products dp
     on m.product_id = dp.product_id

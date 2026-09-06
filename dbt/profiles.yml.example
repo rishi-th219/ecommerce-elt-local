@@ -1,7 +1,19 @@
 ecommerce_warehouse:
-  target: dev
+  target: mssql
   outputs:
-    dev:
+    mssql:
+      type: sqlserver
+      driver: 'ODBC Driver 18 for SQL Server'
+      server: "{{ env_var('MSSQL_SERVER', 'localhost') }}"
+      port: "{{ env_var('MSSQL_PORT', '1433') | int }}"
+      database: "{{ env_var('MSSQL_DB', 'warehouse') }}"
+      schema: dbo
+      user: "{{ env_var('MSSQL_USER', 'sa') }}"
+      password: "{{ env_var('MSSQL_PASSWORD', 'P@ssword#@219#') }}"
+      trust_cert: true
+      threads: 4
+
+    postgres:
       type: postgres
       host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
       user: "{{ env_var('POSTGRES_USER', 'postgres') }}"
@@ -10,15 +22,3 @@ ecommerce_warehouse:
       dbname: "{{ env_var('POSTGRES_DB', 'warehouse') }}"
       schema: public
       threads: 4
-      keepalives_idle: 0
-
-    docker:
-      type: postgres
-      host: postgres
-      user: postgres
-      password: postgres
-      port: 5432
-      dbname: warehouse
-      schema: public
-      threads: 4
-      keepalives_idle: 0

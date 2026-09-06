@@ -31,3 +31,12 @@ database:
   password: "postgres"
   dbname: "warehouse"
   raw_schema: "raw"
+
+mssql:
+  server: "localhost"
+  docker_server: "mssql"
+  port: 1433
+  user: "sa"
+  password: "P@ssword#@219#"
+  database: "warehouse"
+  raw_schema: "raw"
