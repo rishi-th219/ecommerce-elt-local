@@ -57,6 +57,7 @@ services:
       dockerfile: Dockerfile.airflow
     container_name: ecommerce-airflow-webserver
     restart: always
+    command: airflow webserver
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -91,6 +92,7 @@ services:
       dockerfile: Dockerfile.airflow
     container_name: ecommerce-airflow-scheduler
     restart: always
+    command: airflow scheduler
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
