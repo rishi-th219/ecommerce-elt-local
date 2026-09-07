@@ -1,5 +1,6 @@
 {% macro date_to_key(date_column) -%}
     {#- Cross-platform date to integer YYYYMMDD key converter -#}
+    {{- assert_supported_target('date_to_key') -}}
     {%- if target.type == 'sqlserver' -%}
         CONVERT(INT, CONVERT(VARCHAR(8), {{ date_column }}, 112))
     {%- else -%}

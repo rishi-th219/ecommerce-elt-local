@@ -2,119 +2,483 @@ version: 2
 
 models:
   - name: dim_customers
-    description: "Kimball SCD Type 2 dimension tracking customer attributes, states, and history"
+    description: >
+      Kimball SCD Type 2 customer dimension. One row per customer *version*:
+      a profile change closes the previous version and opens a new one. The
+      first version of each customer is anchored to 1900-01-01 so early-arriving
+      facts always resolve, and a `-1` Unknown member absorbs failed lookups.
     columns:
       - name: customer_key
-        description: "Surrogate primary key for customer dimension version"
+        description: "Surrogate key (MD5 of customer_id + updated_at). Primary key of the dimension."
         tests:
           - unique
           - not_null
       - name: customer_id
-        description: "Natural key identifier"
+        description: "Customer natural key. Repeats across versions."
         tests:
           - not_null
+      - name: first_name
+        description: "Given name as of this version."
+      - name: last_name
+        description: "Family name as of this version."
       - name: email
+        description: "Contact email as of this version."
         tests:
           - not_null
+      - name: city
+        description: "Billing city as of this version."
       - name: state
+        description: "US state as of this version -- the attribute SCD2 history exists to preserve."
+        tests:
+          - not_null
+      - name: postal_code
+        description: "Billing postal code as of this version."
+      - name: country
+        description: "Billing country as of this version."
+      - name: created_at
+        description: "Customer signup timestamp. Descriptive attribute, constant across versions."
         tests:
           - not_null
       - name: valid_from
+        description: "Inclusive start of this version's validity window. 1900-01-01 for the first version."
+        tests:
+          - not_null
+      - name: valid_to
+        description: "Exclusive end of this version's validity window. NULL for the current version."
+      - name: effective_updated_at
+        description: "Source updated_at that produced this version, retained for lineage after valid_from anchoring."
         tests:
           - not_null
       - name: is_current
+        description: "Flag (BIT/BOOLEAN) marking the version in force today."
         tests:
           - not_null
 
   - name: dim_products
-    description: "Catalog dimension containing product hierarchies, unit costs, and retail prices"
+    description: >
+      Product catalog dimension (SCD Type 1). One row per product plus the `-1`
+      Unknown member.
     columns:
       - name: product_key
-        description: "Surrogate primary key for product dimension"
+        description: "Surrogate key (MD5 of product_id). Primary key of the dimension."
         tests:
           - unique
           - not_null
       - name: product_id
-        description: "Natural key identifier"
+        description: "Product natural key."
         tests:
           - unique
           - not_null
+      - name: sku
+        description: "Stock keeping unit code."
+        tests:
+          - unique
+          - not_null
+      - name: product_name
+        description: "Merchandising display name."
+        tests:
+          - not_null
+      - name: category
+        description: "Merchandising category, the primary product rollup for reporting."
+        tests:
+          - not_null
       - name: unit_cost
+        description: "Cost of goods for one unit."
         tests:
           - not_null
       - name: retail_price
+        description: "List price for one unit."
+        tests:
+          - not_null
+      - name: baseline_margin_pct
+        description: "Catalog margin before order-level discounting; NULL for the Unknown member."
+      - name: created_at
+        description: "Date the product entered the catalog."
         tests:
           - not_null
 
   - name: dim_date
-    description: "Conformed calendar dimension for temporal aggregation and fiscal slicing"
+    description: >
+      Conformed calendar dimension covering the window defined by the
+      `date_spine_start` / `date_spine_days` project variables, plus the
+      19000101 Unknown member. Role-plays as order date and session date.
     columns:
       - name: date_key
-        description: "YYYYMMDD integer primary key"
+        description: "YYYYMMDD integer surrogate key. Primary key of the dimension."
         tests:
           - unique
           - not_null
       - name: full_date
+        description: "The calendar date itself."
         tests:
           - unique
           - not_null
       - name: day_of_week
+        description: "ISO day of week, 1 = Monday through 7 = Sunday."
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7]
+              quote: false
+      - name: day_name
+        description: "Full weekday name."
+        tests:
+          - not_null
+      - name: day_of_month
+        description: "Day number within the month."
+        tests:
+          - not_null
+      - name: month
+        description: "Month number, 1-12."
+        tests:
+          - not_null
+      - name: month_name
+        description: "Full month name."
+        tests:
+          - not_null
+      - name: quarter
+        description: "Calendar quarter number, 1-4."
         tests:
           - not_null
       - name: fiscal_quarter
+        description: "Quarter label (Q1-Q4) used for fiscal slicing in BI."
+        tests:
+          - not_null
+      - name: year
+        description: "Calendar year."
+        tests:
+          - not_null
+      - name: is_weekend
+        description: "Flag (BIT/BOOLEAN) for Saturday and Sunday."
         tests:
           - not_null
 
   - name: fct_orders
-    description: "Kimball transactional fact table at the grain of one row per order line item"
+    description: >
+      Transactional fact at the grain of one order line item. Customer
+      resolution is a single point-in-time SCD2 join; unresolved foreign keys
+      are routed to each dimension's Unknown member rather than left NULL.
     columns:
       - name: fct_order_item_key
-        description: "Surrogate primary key for fact record"
+        description: "Surrogate key (MD5 of order_item_id). Primary key of the fact."
         tests:
           - unique
           - not_null
       - name: order_item_id
-        description: "Degenerate item natural key"
+        description: "Degenerate dimension: line item natural key."
         tests:
           - unique
           - not_null
       - name: order_id
-        description: "Order header natural key"
+        description: "Degenerate dimension: order header natural key."
         tests:
           - not_null
       - name: customer_key
-        description: "Foreign key to dim_customers (historical SCD2 version active at purchase)"
+        description: "FK to dim_customers -- the SCD2 version in force when the order was placed."
         tests:
           - not_null
           - relationships:
               to: ref('dim_customers')
               field: customer_key
       - name: product_key
-        description: "Foreign key to dim_products"
+        description: "FK to dim_products."
         tests:
           - not_null
           - relationships:
               to: ref('dim_products')
               field: product_key
       - name: order_date_key
-        description: "Foreign key to dim_date"
+        description: "FK to dim_date on the order date."
         tests:
           - not_null
           - relationships:
               to: ref('dim_date')
               field: date_key
+      - name: session_id
+        description: "Degenerate dimension: web session the order was placed in; may be NULL."
+      - name: order_timestamp
+        description: "Full order placement timestamp (dim_date only carries day granularity)."
+        tests:
+          - not_null
+      - name: order_status
+        description: "Fulfilment status of the parent order."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['completed', 'cancelled', 'returned', 'processing']
+      - name: payment_method
+        description: "Tender type used at checkout."
+        tests:
+          - not_null
       - name: quantity
+        description: "Additive measure: units sold on this line."
+        tests:
+          - not_null
+      - name: unit_price
+        description: "Non-additive measure: price charged per unit."
+        tests:
+          - not_null
+      - name: unit_cost
+        description: "Non-additive measure: catalog cost per unit."
         tests:
           - not_null
       - name: gross_amount
+        description: "Additive measure: quantity * unit_price."
+        tests:
+          - not_null
+      - name: discount_amount
+        description: "Additive measure: discount applied to this line."
         tests:
           - not_null
       - name: net_revenue
+        description: "Additive measure: gross_amount - discount_amount."
         tests:
           - not_null
       - name: cogs
+        description: "Additive measure: quantity * unit_cost."
         tests:
           - not_null
       - name: gross_profit
+        description: "Additive measure: net_revenue - cogs."
         tests:
           - not_null
+      - name: profit_margin_pct
+        description: "Non-additive ratio: gross_profit / net_revenue as a percentage. Recompute from sums when aggregating."
+
+  - name: fct_sessions
+    description: >
+      Session fact at the grain of one web session, promoted from the
+      intermediate layer so the marts schema alone answers acquisition,
+      engagement and conversion questions.
+    columns:
+      - name: session_key
+        description: "Surrogate key (MD5 of session_id). Primary key of the fact."
+        tests:
+          - unique
+          - not_null
+      - name: session_id
+        description: "Degenerate dimension: session natural key."
+        tests:
+          - unique
+          - not_null
+      - name: customer_key
+        description: "FK to dim_customers -- the SCD2 version in force when the session started."
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_key
+      - name: session_date_key
+        description: "FK to dim_date on the session start date."
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: session_start
+        description: "Session start timestamp."
+        tests:
+          - not_null
+      - name: session_end
+        description: "Session end timestamp."
+      - name: device_type
+        description: "Device class the session was served to."
+        tests:
+          - not_null
+      - name: traffic_source
+        description: "Acquisition channel that referred the session."
+        tests:
+          - not_null
+      - name: duration_seconds
+        description: "Additive measure: session length in seconds."
+        tests:
+          - not_null
+      - name: duration_minutes
+        description: "Additive measure: session length in minutes."
+      - name: page_views_count
+        description: "Additive measure: pages viewed in the session."
+        tests:
+          - not_null
+      - name: is_converted
+        description: "Flag (BIT/BOOLEAN) marking a converting session."
+        tests:
+          - not_null
+      - name: converted_order_id
+        description: "Degenerate dimension: first order placed in the session; NULL when it did not convert."
+      - name: order_count
+        description: "Additive measure: orders placed in the session."
+        tests:
+          - not_null
+      - name: session_attributed_revenue
+        description: "Additive measure: net revenue attributed to the session."
+        tests:
+          - not_null
+
+  - name: fct_daily_sales
+    description: >
+      Periodic snapshot fact, one row per trading day, pre-aggregated from
+      fct_orders. Answers "how did the business perform on this day" without
+      scanning the line-item grain.
+    columns:
+      - name: date_key
+        description: "FK to dim_date and the grain of this snapshot."
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: order_count
+        description: "Distinct orders placed on the day."
+        tests:
+          - not_null
+      - name: customer_count
+        description: "Distinct customer versions that placed an order on the day."
+        tests:
+          - not_null
+      - name: order_line_count
+        description: "Order lines recorded on the day."
+        tests:
+          - not_null
+      - name: units_sold
+        description: "Units sold across all lines on the day."
+        tests:
+          - not_null
+      - name: gross_amount
+        description: "Revenue before discounts."
+        tests:
+          - not_null
+      - name: discount_amount
+        description: "Discounts granted on the day."
+        tests:
+          - not_null
+      - name: net_revenue
+        description: "Revenue after discounts."
+        tests:
+          - not_null
+      - name: cogs
+        description: "Cost of goods sold on the day."
+        tests:
+          - not_null
+      - name: gross_profit
+        description: "net_revenue - cogs for the day."
+        tests:
+          - not_null
+      - name: profit_margin_pct
+        description: "Day-level margin, recomputed from the day's sums rather than averaged."
+      - name: completed_net_revenue
+        description: "Net revenue from lines whose order status is completed."
+        tests:
+          - not_null
+      - name: returned_net_revenue
+        description: "Net revenue from lines whose order status is returned."
+        tests:
+          - not_null
+      - name: cancelled_net_revenue
+        description: "Net revenue from lines whose order status is cancelled."
+        tests:
+          - not_null
+
+  - name: mart_customer_360
+    description: >
+      One row per customer: current profile, lifetime purchase behaviour, web
+      engagement, and an RFM quintile segmentation for marketing activation.
+    columns:
+      - name: customer_key
+        description: "FK to the current version of the customer in dim_customers."
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_key
+      - name: customer_id
+        description: "Customer natural key; the grain of this mart."
+        tests:
+          - unique
+          - not_null
+      - name: first_name
+        description: "Current given name."
+      - name: last_name
+        description: "Current family name."
+      - name: email
+        description: "Current contact email."
+        tests:
+          - not_null
+      - name: city
+        description: "Current billing city."
+      - name: state
+        description: "Current US state."
+        tests:
+          - not_null
+      - name: country
+        description: "Current billing country."
+      - name: customer_since
+        description: "Signup timestamp."
+        tests:
+          - not_null
+      - name: lifetime_order_count
+        description: "Distinct orders ever placed. Zero for customers who never purchased."
+        tests:
+          - not_null
+      - name: lifetime_net_revenue
+        description: "Net revenue across every order line ever purchased."
+        tests:
+          - not_null
+      - name: lifetime_gross_profit
+        description: "Gross profit across every order line ever purchased."
+        tests:
+          - not_null
+      - name: avg_order_value
+        description: "lifetime_net_revenue / lifetime_order_count; NULL when the customer never purchased."
+      - name: returned_order_count
+        description: "Distinct orders that ended in a return."
+        tests:
+          - not_null
+      - name: first_order_at
+        description: "Timestamp of the customer's first order; NULL when they never purchased."
+      - name: last_order_at
+        description: "Timestamp of the customer's most recent order; NULL when they never purchased."
+      - name: days_since_last_order
+        description: "Recency in days, measured against the latest order in the warehouse rather than today."
+      - name: session_count
+        description: "Web sessions attributed to the customer's current version."
+        tests:
+          - not_null
+      - name: total_page_views
+        description: "Page views across those sessions."
+        tests:
+          - not_null
+      - name: recency_score
+        description: "RFM recency quintile, 1 (stalest) to 5 (most recent); 0 for never-purchased."
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5]
+              quote: false
+      - name: frequency_score
+        description: "RFM frequency quintile, 1 to 5; 0 for never-purchased."
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5]
+              quote: false
+      - name: monetary_score
+        description: "RFM monetary quintile, 1 to 5; 0 for never-purchased."
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5]
+              quote: false
+      - name: rfm_segment
+        description: "Marketing segment label derived from the three RFM scores."
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Champion'
+                - 'Promising'
+                - 'Needs Attention'
+                - 'At Risk (High Value)'
+                - 'Hibernating'
+                - 'Never Purchased'

@@ -15,10 +15,30 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+vars:
+  # Calendar spine bounds for dim_date (see models/marts/dim_date.sql)
+  date_spine_start: '2023-01-01'
+  date_spine_days: 1460
+
+  # Kimball "Unknown" dimension members. Facts whose foreign key lookup fails
+  # are routed to these rows instead of NULL, so no measure is lost in a join.
+  unknown_key: '-1'
+  unknown_date_key: 19000101
+
+  # SCD2 lower bound. The first version of every customer is anchored here so
+  # early-arriving facts (orders that predate the first captured profile row)
+  # still resolve to a dimension version.
+  scd2_beginning_of_time: '1900-01-01'
+
+  # Targets that write un-prefixed layer schemas (see macros/generate_schema_name.sql)
+  prod_targets: ['mssql', 'postgres']
+
 models:
   ecommerce_elt:
     staging:
-      +materialized: view
+      # Materialized as tables so JSON_VALUE / ->> parsing runs once per refresh
+      # instead of on every downstream model reference.
+      +materialized: table
       +schema: staging
     intermediate:
       +materialized: view

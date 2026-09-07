@@ -9,15 +9,29 @@ Generates realistic, referentially consistent e-commerce data:
 """
 
 import json
-import random
 import os
-import yaml
+import random
 from datetime import datetime, timedelta
+
+import yaml
 from faker import Faker
 
+from ingestion.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+DEFAULT_SEED = 42
+
 fake = Faker()
-Faker.seed(42)
-random.seed(42)
+
+
+def set_seed(seed=DEFAULT_SEED):
+    """Seed both RNGs so a given config reproduces byte-identical bronze files."""
+    Faker.seed(seed)
+    random.seed(seed)
+
+
+set_seed()
 
 CATEGORIES = {
     "Electronics": [
@@ -122,12 +136,14 @@ def generate_dataset(config=None):
     if config is None:
         config = load_config()
 
+    set_seed(config.get("seed", DEFAULT_SEED))
+
     scale = config["scale"]
     start_dt = datetime.strptime(config["date_range"]["start_date"], "%Y-%m-%d")
     end_dt = datetime.strptime(config["date_range"]["end_date"], "%Y-%m-%d")
     total_days = (end_dt - start_dt).days
 
-    print(f"Generating synthetic e-commerce data ({total_days} day period)...")
+    logger.info("Generating synthetic e-commerce data over a %s day period", total_days)
 
     # 1. Products
     products = []
@@ -320,11 +336,13 @@ def generate_dataset(config=None):
             "net_revenue": round(order_gross - order_discount, 2)
         })
 
-    print(f"Generated: {len(customers_raw)} customer event records (from {num_customers} customers)")
-    print(f"Generated: {len(products)} products")
-    print(f"Generated: {len(sessions)} web sessions")
-    print(f"Generated: {len(orders)} orders")
-    print(f"Generated: {len(order_items)} order items")
+    logger.info(
+        "Generated %s customer event records (from %s customers)", len(customers_raw), num_customers
+    )
+    logger.info("Generated %s products", len(products))
+    logger.info("Generated %s web sessions", len(sessions))
+    logger.info("Generated %s orders", len(orders))
+    logger.info("Generated %s order items", len(order_items))
 
     return {
         "customers": customers_raw,
@@ -341,4 +359,4 @@ if __name__ == "__main__":
     assert len(data["products"]) > 0
     assert len(data["orders"]) > 0
     assert len(data["order_items"]) > 0
-    print("Self-test passed: dataset generation successful.")
+    logger.info("Self-test passed: dataset generation successful.")

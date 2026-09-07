@@ -52,3 +52,8 @@ data/bronze/*.jsonl
 *.swp
 *.swo
 .DS_Store
+
+# Local study guides & personal notes (Do not push)
+LINKEDIN_POSTS.md
+PROJECT_STUDY_GUIDE.md
+IMPROVEMENT_SUGGESTIONS.md

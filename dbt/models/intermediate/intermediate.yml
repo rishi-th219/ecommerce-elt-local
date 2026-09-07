@@ -2,29 +2,138 @@ version: 2
 
 models:
   - name: int_sessions
-    description: "Intermediate model aggregating session metadata, durations, and order conversion revenue attribution"
+    description: >
+      Sessionized view of web traffic with order revenue attributed back to the
+      session that produced it. Orders are aggregated to the session grain
+      before joining so a multi-order session cannot fan the session out into
+      duplicate rows.
     columns:
       - name: session_id
+        description: "Session natural key; the grain of this model."
         tests:
           - unique
           - not_null
       - name: customer_id
+        description: "Customer who owned the session."
         tests:
           - not_null
+      - name: session_start
+        description: "Session start timestamp."
+        tests:
+          - not_null
+      - name: session_end
+        description: "Session end timestamp."
+      - name: duration_seconds
+        description: "Session length in seconds."
+        tests:
+          - not_null
+      - name: duration_minutes
+        description: "Session length in minutes, rounded to two decimals."
+      - name: device_type
+        description: "Device class the session was served to."
+        tests:
+          - not_null
+      - name: traffic_source
+        description: "Acquisition channel that referred the session."
+        tests:
+          - not_null
+      - name: page_views_count
+        description: "Pages viewed during the session."
+      - name: is_converted
+        description: "Source-system conversion flag for the session."
+        tests:
+          - not_null
+      - name: converted_order_id
+        description: "Lowest order_id placed in the session; NULL when the session did not convert."
+      - name: order_count
+        description: "Number of orders placed in the session (0 for non-converting sessions)."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
+      - name: session_attributed_revenue
+        description: "Sum of net revenue across every order placed in the session; 0 when the session did not convert."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
 
   - name: int_order_margins
-    description: "Intermediate grain-level join computing line revenue, COGS, and gross profit margins"
+    description: >
+      Line-item economics: gross amount, net revenue, COGS, gross profit and
+      profit margin at the order-item grain. The revenue arithmetic is computed
+      once in a CTE and reused by every downstream measure.
     columns:
       - name: order_item_id
+        description: "Line item natural key; the grain of this model."
         tests:
           - unique
           - not_null
       - name: order_id
+        description: "Parent order header."
+        tests:
+          - not_null
+      - name: customer_id
+        description: "Customer who placed the parent order."
+        tests:
+          - not_null
+      - name: session_id
+        description: "Web session the parent order was placed in; may be NULL."
+      - name: order_date
+        description: "Order placement timestamp, inherited from the order header."
+        tests:
+          - not_null
+      - name: order_status
+        description: "Fulfilment status inherited from the order header."
+        tests:
+          - not_null
+      - name: payment_method
+        description: "Tender type inherited from the order header."
+      - name: product_id
+        description: "Product sold on this line."
+        tests:
+          - not_null
+      - name: sku
+        description: "SKU of the product sold."
+      - name: product_name
+        description: "Display name of the product sold."
+      - name: category
+        description: "Merchandising category of the product sold."
+      - name: quantity
+        description: "Units sold on this line."
+        tests:
+          - not_null
+      - name: unit_price
+        description: "Price charged per unit before the line discount."
+        tests:
+          - not_null
+      - name: unit_cost
+        description: "Catalog cost per unit, sourced from dim-level product data."
+        tests:
+          - not_null
+      - name: gross_amount
+        description: "quantity * unit_price."
+        tests:
+          - not_null
+      - name: discount_amount
+        description: "Discount applied to this line."
         tests:
           - not_null
       - name: net_revenue
+        description: "gross_amount - discount_amount."
         tests:
           - not_null
+          - expression_is_true:
+              expression: ">= 0"
       - name: cogs
+        description: "quantity * unit_cost."
         tests:
           - not_null
+          - expression_is_true:
+              expression: ">= 0"
+      - name: gross_profit
+        description: "net_revenue - cogs. Can be negative when a discount pushes a line below cost."
+        tests:
+          - not_null
+      - name: profit_margin_pct
+        description: "gross_profit as a percentage of net_revenue; NULL when net_revenue is zero."

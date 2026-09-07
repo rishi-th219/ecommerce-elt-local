@@ -1,13 +1,46 @@
 FROM apache/airflow:2.9.1-python3.11
 
+# ─── System layer: Microsoft ODBC Driver 18 ────────────────────────────────────
+# dbt-sqlserver talks to SQL Server through pyodbc, which needs the vendor ODBC
+# driver present in the image. Without it the dbt tasks in the DAG fail at
+# connection time with "libodbc.so.2: cannot open shared object file".
+# `git` is kept (not purged with gnupg) because dbt's environment check and
+# git-sourced packages both need it.
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \
+        > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc \
+    && apt-get purge -y --auto-remove gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Python layer ──────────────────────────────────────────────────────────────
+# Versions are pinned to the set the project is verified against. `psycopg2-binary`
+# and `pyyaml` ship with the Airflow base image and `pandas` was never imported by
+# any task, so none of them are reinstalled here.
 USER airflow
 
-# Install dbt-postgres and Python libraries for ingestion and testing
 RUN pip install --no-cache-dir \
-    dbt-core==1.8.2 \
-    dbt-postgres==1.8.2 \
+    dbt-core==1.12.3 \
+    dbt-postgres==1.11.0 \
+    dbt-sqlserver==1.11.1 \
     faker==24.0.0 \
-    psycopg2-binary==2.9.9 \
-    pyyaml==6.0.1 \
-    boto3==1.34.0 \
-    pandas==2.2.0
+    pymssql==2.3.0 \
+    boto3==1.34.0
+
+# ─── dbt package layer ─────────────────────────────────────────────────────────
+# dbt_utils is resolved at build time from the committed package-lock.yml so the
+# scheduled pipeline never reaches out to GitHub on the critical path. Compose
+# bind-mounts ./dbt over this directory during local development, where
+# airflow-init refreshes the packages once per stack start.
+COPY --chown=airflow:root dbt/dbt_project.yml dbt/packages.yml dbt/package-lock.yml /opt/airflow/dbt/
+RUN cd /opt/airflow/dbt && dbt deps --no-version-check

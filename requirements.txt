@@ -1,17 +1,21 @@
-# Core ELT and Transformation
-dbt-core>=1.8.0
-dbt-postgres>=1.8.0
-dbt-sqlserver>=1.8.0
+# Pinned to compatible-release ranges (~=): patch and minor updates are allowed,
+# breaking major versions are not. The stack is verified against the versions in
+# the comments.
 
-# Ingestion & Data Generation
-faker>=24.0.0
-psycopg2-binary>=2.9.9
-pymssql>=2.3.0
-pyodbc>=5.0.0
-pyyaml>=6.0.1
-boto3>=1.34.0
-requests>=2.31.0
+# ─── Core ELT and transformation ───────────────────────────────────────────────
+dbt-core~=1.12.3
+dbt-postgres~=1.11.0
+dbt-sqlserver~=1.11.1
 
-# Analytics & Documentation
-pandas>=2.2.0
-matplotlib>=3.8.0
+# ─── Ingestion and data generation ─────────────────────────────────────────────
+faker~=24.0.0
+psycopg2-binary~=2.9.9
+pymssql~=2.3.0
+pyodbc~=5.0            # required by dbt-sqlserver; needs ODBC Driver 18 on the host
+pyyaml~=6.0.1
+boto3~=1.34.0
+requests~=2.31
+
+# ─── Analytics and documentation ───────────────────────────────────────────────
+pandas~=2.2.0
+matplotlib~=3.8

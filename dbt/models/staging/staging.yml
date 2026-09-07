@@ -2,69 +2,272 @@ version: 2
 
 models:
   - name: stg_customers
-    description: "Staging view parsing raw customer JSON documents into typed relational columns"
+    description: >
+      Silver layer. Parses raw customer JSON documents into typed relational
+      columns. One row per customer *profile event*, not per customer -- a
+      profile update lands as an additional row and is what `dim_customers`
+      turns into an SCD Type 2 version.
     columns:
       - name: customer_id
-        description: "Customer natural identifier"
+        description: "Customer natural key (CUST-nnnn)."
         tests:
           - not_null
+      - name: first_name
+        description: "Customer given name as supplied by the source system."
+      - name: last_name
+        description: "Customer family name as supplied by the source system."
       - name: email
+        description: "Contact email address; unique per customer in the source feed."
         tests:
           - not_null
+      - name: city
+        description: "Billing city at the time of the profile event."
       - name: state
+        description: "US state abbreviation at the time of the profile event -- the attribute that drives SCD2 history."
+        tests:
+          - not_null
+      - name: postal_code
+        description: "Billing postal code at the time of the profile event."
+      - name: country
+        description: "Billing country (USA for the whole synthetic dataset)."
+      - name: created_at
+        description: "Customer signup timestamp; constant across all versions of a customer."
+        tests:
+          - not_null
+      - name: updated_at
+        description: "Timestamp of this profile event. Equals created_at for the first version."
+        tests:
+          - not_null
+      - name: _ingested_at
+        description: "Warehouse load timestamp written by the raw loader."
         tests:
           - not_null
 
   - name: stg_products
-    description: "Staging view extracting product catalog specs and cost/price numbers"
+    description: "Silver layer. Product catalog specifications with unit cost and retail price."
     columns:
       - name: product_id
-        description: "Unique product natural key"
+        description: "Product natural key (PROD-nnn)."
         tests:
           - unique
           - not_null
-      - name: unit_cost
+      - name: sku
+        description: "Stock keeping unit code, derived from category and product index."
+        tests:
+          - unique
+          - not_null
+      - name: product_name
+        description: "Merchandising display name."
         tests:
           - not_null
+      - name: category
+        description: "Merchandising category the product rolls up to."
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Electronics'
+                - 'Apparel'
+                - 'Home & Kitchen'
+                - 'Beauty & Personal Care'
+                - 'Sports & Outdoors'
+                - 'Books & Stationery'
+      - name: unit_cost
+        description: "Cost of goods for one unit; the COGS input for margin calculations."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
       - name: retail_price
+        description: "List price for one unit before order-level discounts."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
+          - expression_is_true:
+              expression: ">= unit_cost"
+              config:
+                severity: warn
+      - name: created_at
+        description: "Date the product was added to the catalog."
+      - name: _ingested_at
+        description: "Warehouse load timestamp written by the raw loader."
         tests:
           - not_null
 
   - name: stg_sessions
-    description: "Staging view parsing user web sessions and traffic channels"
+    description: "Silver layer. Web session clickstream with acquisition channel and device context."
     columns:
       - name: session_id
+        description: "Session natural key (SESS-nnnnnn)."
         tests:
           - unique
           - not_null
       - name: customer_id
+        description: "Customer who owned the session."
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: session_start
+        description: "Session start timestamp."
+        tests:
+          - not_null
+      - name: session_end
+        description: "Session end timestamp; always later than session_start."
+        tests:
+          - not_null
+      - name: duration_seconds
+        description: "Session length in seconds."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
+      - name: device_type
+        description: "Device class the session was served to."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['mobile', 'desktop', 'tablet']
+      - name: traffic_source
+        description: "Acquisition channel that referred the session."
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'organic_search'
+                - 'direct'
+                - 'cpc_ad'
+                - 'email_campaign'
+                - 'social_media'
+                - 'affiliate'
+      - name: page_views_count
+        description: "Number of pages viewed during the session."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 1"
+      - name: is_converted
+        description: "Flag (BIT/BOOLEAN) set when the session produced at least one order."
+        tests:
+          - not_null
+      - name: _ingested_at
+        description: "Warehouse load timestamp written by the raw loader."
         tests:
           - not_null
 
   - name: stg_orders
-    description: "Staging view extracting order header transactions"
+    description: "Silver layer. Order header transactions with payment and fulfilment status."
+    tests:
+      # Model-level arithmetic contract: the header totals must be internally
+      # consistent before anything downstream trusts them as measures.
+      - expression_is_true:
+          expression: "gross_amount - discount_amount = net_revenue"
     columns:
       - name: order_id
+        description: "Order natural key (ORD-nnnnn)."
         tests:
           - unique
           - not_null
       - name: customer_id
+        description: "Customer who placed the order."
         tests:
           - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: session_id
+        description: "Web session the order was placed in; NULL for orders with no attributable session."
+      - name: order_date
+        description: "Order placement timestamp."
+        tests:
+          - not_null
+      - name: order_status
+        description: "Fulfilment status of the order at extract time."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['completed', 'cancelled', 'returned', 'processing']
+      - name: payment_method
+        description: "Tender type used at checkout."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['credit_card', 'paypal', 'apple_pay', 'debit_card']
+      - name: gross_amount
+        description: "Order total before discounts, summed from its line items."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
+      - name: discount_amount
+        description: "Total discount applied across the order's line items."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
       - name: net_revenue
+        description: "Order revenue after discounts (gross_amount - discount_amount)."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
+      - name: _ingested_at
+        description: "Warehouse load timestamp written by the raw loader."
         tests:
           - not_null
 
   - name: stg_order_items
-    description: "Staging view extracting line-item breakdown per purchase order"
+    description: "Silver layer. Line-item breakdown of each order; the grain the fact table is built on."
+    tests:
+      - expression_is_true:
+          expression: "(quantity * unit_price) - discount_amount = net_amount"
     columns:
       - name: order_item_id
+        description: "Line item natural key (ITEM-nnnnnn)."
         tests:
           - unique
           - not_null
       - name: order_id
+        description: "Parent order header."
         tests:
           - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
       - name: product_id
+        description: "Product sold on this line."
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_products')
+              field: product_id
+      - name: quantity
+        description: "Units sold on this line."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
+      - name: unit_price
+        description: "Price charged per unit before the line discount."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "> 0"
+      - name: discount_amount
+        description: "Discount applied to this line."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
+      - name: net_amount
+        description: "Line revenue after discount, as supplied by the source system."
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: ">= 0"
+      - name: _ingested_at
+        description: "Warehouse load timestamp written by the raw loader."
         tests:
           - not_null

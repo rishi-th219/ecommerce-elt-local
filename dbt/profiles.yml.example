@@ -1,6 +1,18 @@
+# dbt connection profiles.
+#
+# Credentials are read from the environment (see .env.example). Nothing secret is
+# committed: MSSQL_PASSWORD has no fallback, so dbt fails loudly with
+# "Env var required but not provided" rather than silently trying a default.
+#
+# In production these values would come from a secrets manager -- AWS Secrets
+# Manager, Azure Key Vault, Vault -- injected as environment variables by the
+# orchestrator, with the same profiles.yml unchanged.
+
 ecommerce_warehouse:
   target: mssql
   outputs:
+
+    # Primary deployment target: Microsoft SQL Server 2025.
     mssql:
       type: sqlserver
       driver: 'ODBC Driver 18 for SQL Server'
@@ -9,11 +21,26 @@ ecommerce_warehouse:
       database: "{{ env_var('MSSQL_DB', 'warehouse') }}"
       schema: dbo
       user: "{{ env_var('MSSQL_USER', 'sa') }}"
-      password: "{{ env_var('MSSQL_PASSWORD', 'P@ssword#@219#') }}"
+      password: "{{ env_var('MSSQL_PASSWORD') }}"
       trust_cert: true
       threads: 4
 
+    # Portability target: the same models compile and pass on PostgreSQL 16.
     postgres:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      user: "{{ env_var('POSTGRES_USER', 'postgres') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'postgres') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'warehouse') }}"
+      schema: public
+      threads: 4
+
+    # Personal sandbox. Not listed in the `prod_targets` project var, so
+    # generate_schema_name() prefixes every layer schema -- this target writes
+    # dev_staging / dev_intermediate / dev_marts and can never clobber the
+    # deployed tables on a shared database.
+    dev:
       type: postgres
       host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
       user: "{{ env_var('POSTGRES_USER', 'postgres') }}"

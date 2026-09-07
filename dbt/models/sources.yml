@@ -2,43 +2,67 @@ version: 2
 
 sources:
   - name: raw
+    description: >
+      Landing zone written by the ingestion loaders. Each table holds the source
+      payload verbatim -- NVARCHAR(MAX) on SQL Server, JSONB on PostgreSQL -- so
+      the warehouse can be rebuilt from raw without re-extracting.
     database: warehouse
     schema: raw
+
+    # `dbt source freshness` treats the loader's audit column as the watermark.
+    # A raw layer more than a day stale means the ingestion DAG stopped running.
+    loaded_at_field: _ingested_at
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+
     tables:
       - name: raw_customers
-        description: "Raw landing table containing customer records and update events as JSONB payloads"
+        description: "Raw customer records and profile-update events as JSON payloads."
         columns:
           - name: id
-            description: "Surrogate auto-increment ID generated upon ingestion"
+            description: "Auto-increment surrogate assigned at ingestion."
           - name: payload
-            description: "JSONB document with customer attributes and timestamp metadata"
+            description: "JSON document with customer attributes and timestamp metadata."
           - name: _ingested_at
-            description: "Timestamp when payload was written to raw schema"
+            description: "UTC timestamp the payload was written to the raw schema."
 
       - name: raw_products
-        description: "Raw landing table containing product catalog specifications and price lists as JSONB"
+        description: "Raw product catalog specifications and price lists as JSON payloads."
         columns:
           - name: id
+            description: "Auto-increment surrogate assigned at ingestion."
           - name: payload
+            description: "JSON document with product attributes, unit cost and retail price."
           - name: _ingested_at
+            description: "UTC timestamp the payload was written to the raw schema."
 
       - name: raw_sessions
-        description: "Raw landing table containing customer digital clickstream and session records"
+        description: "Raw clickstream session records as JSON payloads."
         columns:
           - name: id
+            description: "Auto-increment surrogate assigned at ingestion."
           - name: payload
+            description: "JSON document with session timing, device and traffic source."
           - name: _ingested_at
+            description: "UTC timestamp the payload was written to the raw schema."
 
       - name: raw_orders
-        description: "Raw landing table containing transactional purchase orders"
+        description: "Raw transactional order headers as JSON payloads."
         columns:
           - name: id
+            description: "Auto-increment surrogate assigned at ingestion."
           - name: payload
+            description: "JSON document with order header, status and monetary totals."
           - name: _ingested_at
+            description: "UTC timestamp the payload was written to the raw schema."
 
       - name: raw_order_items
-        description: "Raw landing table containing line item detail for purchase orders"
+        description: "Raw line-item detail for purchase orders as JSON payloads."
         columns:
           - name: id
+            description: "Auto-increment surrogate assigned at ingestion."
           - name: payload
+            description: "JSON document with product, quantity, price and discount."
           - name: _ingested_at
+            description: "UTC timestamp the payload was written to the raw schema."

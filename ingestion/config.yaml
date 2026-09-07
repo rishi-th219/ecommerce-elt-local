@@ -1,5 +1,12 @@
 # Ingestion & Generator Configuration
-seed: 42
+#
+# Credentials below are local development defaults only. Every one of them is
+# overridden by the matching environment variable (see .env.example), and the
+# MSSQL password has no value here at all -- MSSQL_PASSWORD must be set in the
+# environment. A production deployment would source these from a secrets
+# manager injected by the orchestrator.
+
+seed: 42  # RNG seed; the same seed reproduces byte-identical bronze files
 
 scale:
   num_customers: 250
@@ -37,6 +44,6 @@ mssql:
   docker_server: "mssql"
   port: 1433
   user: "sa"
-  password: "P@ssword#@219#"
+  # password: intentionally absent -- supplied via the MSSQL_PASSWORD env var.
   database: "warehouse"
   raw_schema: "raw"

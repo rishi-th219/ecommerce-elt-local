@@ -1,8 +1,43 @@
+# Local ELT stack. Every host port is overridable from .env so the stack can run
+# alongside an existing local Postgres / SQL Server without a port clash.
+#
+# `restart: unless-stopped` (rather than `always`) so `docker compose stop`
+# actually keeps the containers down until they are explicitly started again.
+
+x-airflow-environment: &airflow-environment
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+  DBT_PROFILES_DIR: /opt/airflow/dbt
+  DBT_TARGET: ${DBT_TARGET:-mssql}
+  MSSQL_SERVER: mssql
+  MSSQL_PORT: "1433"
+  MSSQL_USER: ${MSSQL_USER:-sa}
+  MSSQL_PASSWORD: ${MSSQL_PASSWORD:?MSSQL_PASSWORD must be set in .env}
+  MSSQL_DB: ${MSSQL_DB:-warehouse}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-warehouse}
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  INGESTION_LOG_LEVEL: ${INGESTION_LOG_LEVEL:-INFO}
+
+x-airflow-volumes: &airflow-volumes
+  - ./airflow/dags:/opt/airflow/dags
+  - ./airflow/logs:/opt/airflow/logs
+  - ./dbt:/opt/airflow/dbt
+  - ./ingestion:/opt/airflow/ingestion
+  - ./data:/opt/airflow/data
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: ecommerce-postgres
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -21,24 +56,52 @@ services:
   mssql:
     image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: mssql-server
-    restart: always
+    restart: unless-stopped
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD:-P@ssword#@219#}
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD:?MSSQL_PASSWORD must be set in .env}
       MSSQL_PID: "Developer"
     ports:
-      - "${MSSQL_PORT:-1433}:1433"
+      - "${MSSQL_HOST_PORT:-1433}:1433"
+    volumes:
+      # Without this the entire warehouse database is destroyed on every
+      # container recreate -- the raw schema and all dbt-built marts with it.
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      # SQL Server needs 20-30s before it accepts logins; dependants wait on this.
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -C -b -t 3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: ecommerce-mssql-init
+    restart: "no"
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      MSSQL_PASSWORD: ${MSSQL_PASSWORD:?MSSQL_PASSWORD must be set in .env}
+      MSSQL_DB: ${MSSQL_DB:-warehouse}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$${MSSQL_PASSWORD}" -C -b -Q \
+          "IF DB_ID('$${MSSQL_DB}') IS NULL CREATE DATABASE [$${MSSQL_DB}];"
 
   minio:
     image: minio/minio:latest
     container_name: ecommerce-minio
-    restart: always
+    restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -48,49 +111,36 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: ecommerce-airflow-init
+    restart: "no"
     environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      <<: *airflow-environment
       _AIRFLOW_DB_MIGRATE: "true"
       _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER:-admin}
       _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    volumes: *airflow-volumes
     depends_on:
       postgres:
         condition: service_healthy
+    # dbt deps runs once here, not on every DAG run: the bind-mounted ./dbt
+    # shadows the packages baked into the image, and a GitHub outage should not
+    # be able to break the daily pipeline.
     command: >
-      bash -c "airflow db migrate && airflow users create --username ${AIRFLOW_USER:-admin} --firstname Admin --lastname User --role Admin --email ${AIRFLOW_EMAIL:-admin@example.com} --password ${AIRFLOW_PASSWORD:-admin} || true"
+      bash -c "airflow db migrate
+      && airflow users create --username ${AIRFLOW_USER:-admin} --firstname Admin --lastname User --role Admin --email ${AIRFLOW_EMAIL:-admin@example.com} --password ${AIRFLOW_PASSWORD:-admin} || true
+      && cd /opt/airflow/dbt && dbt deps --no-version-check"
 
   airflow-webserver:
     build:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: ecommerce-airflow-webserver
-    restart: always
+    restart: unless-stopped
     command: airflow webserver
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
-      DBT_PROFILES_DIR: /opt/airflow/dbt
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-warehouse}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    environment: *airflow-environment
     ports:
-      - "8080:8080"
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./dbt:/opt/airflow/dbt
-      - ./ingestion:/opt/airflow/ingestion
-      - ./data:/opt/airflow/data
+      - "${AIRFLOW_HOST_PORT:-8080}:8080"
+    volumes: *airflow-volumes
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -102,40 +152,26 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: ecommerce-airflow-scheduler
-    restart: always
+    restart: unless-stopped
     command: airflow scheduler
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${AIRFLOW_DB:-airflow}
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
-      DBT_PROFILES_DIR: /opt/airflow/dbt
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-warehouse}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./dbt:/opt/airflow/dbt
-      - ./ingestion:/opt/airflow/ingestion
-      - ./data:/opt/airflow/data
+    environment: *airflow-environment
+    volumes: *airflow-volumes
     depends_on:
       airflow-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      mssql:
+        condition: service_healthy
+      mssql-init:
+        condition: service_completed_successfully
 
   metabase:
     image: metabase/metabase:latest
     container_name: ecommerce-metabase
-    restart: always
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${METABASE_HOST_PORT:-3000}:3000"
     environment:
       MB_DB_TYPE: h2
     volumes:
@@ -146,5 +182,6 @@ services:
 
 volumes:
   postgres_data:
+  mssql_data:
   minio_data:
   metabase_data:

@@ -1,6 +1,10 @@
 """
 Kimball Star Schema ER Diagram Generator
-Generates docs/er_diagram.png using matplotlib.
+
+Regenerates docs/er_diagram.png from the model definitions in dbt/models/marts.
+Run from the repository root after changing the star schema:
+
+    python docs/generate_er_diagram.py
 """
 
 import matplotlib.pyplot as plt
@@ -33,7 +37,6 @@ def draw_table(ax, x, y, width, height, title, rows, header_color="#2c3e50", bod
     line_spacing = (height - header_height - 0.05) / max(len(rows), 1)
     
     for row in rows:
-        prefix = ""
         font_weight = "normal"
         text_color = "#2c3e50"
         
@@ -73,7 +76,7 @@ def generate_er_diagram(output_path="docs/er_diagram.png"):
     ax.set_facecolor('#f8f9fa')
 
     # Title
-    plt.title("E-Commerce Data Warehouse: Kimball Star Schema Architecture\n(Orchestrated via Airflow • Modeled via dbt • Local PostgreSQL)",
+    plt.title("E-Commerce Data Warehouse: Kimball Star Schema Architecture\n(Orchestrated via Airflow • Modeled via dbt • Microsoft SQL Server 2025 / PostgreSQL 16)",
               fontsize=16, weight='bold', color="#1a252f", pad=25)
 
     # 1. Central Fact Table (fct_orders)
@@ -82,15 +85,17 @@ def generate_er_diagram(output_path="docs/er_diagram.png"):
         "[PK] fct_order_item_key",
         "     order_item_id (NK)",
         "     order_id (Degenerate)",
+        "     session_id (Degenerate)",
         "[FK] customer_key",
         "[FK] product_key",
         "[FK] order_date_key",
-        "[FK] session_id",
         "     order_timestamp",
         "     order_status",
         "     payment_method",
         "     --- Measures ---",
         "     quantity",
+        "     unit_price",
+        "     unit_cost",
         "     gross_amount",
         "     discount_amount",
         "     net_revenue",
@@ -112,11 +117,14 @@ def generate_er_diagram(output_path="docs/er_diagram.png"):
         "     email",
         "     city",
         "     state (Historical)",
+        "     postal_code",
         "     country",
+        "     created_at",
         "     --- SCD2 Tracking ---",
         "     valid_from",
         "     valid_to",
-        "     is_current (Boolean)"
+        "     effective_updated_at",
+        "     is_current (BIT)"
     ]
     draw_table(ax, cust_x, cust_y, cust_w, cust_h,
                "marts.dim_customers (SCD Type 2)", cust_rows,
@@ -152,30 +160,34 @@ def generate_er_diagram(output_path="docs/er_diagram.png"):
         "     quarter",
         "     fiscal_quarter",
         "     year",
-        "     is_weekend (Boolean)"
+        "     is_weekend (BIT)"
     ]
     draw_table(ax, date_x, date_y, date_w, date_h,
                "marts.dim_date (Role-Playing Dim)", date_rows,
                header_color="#d35400", body_color="#fef5e7", border_color="#a04000")
 
-    # 5. int_sessions - Bottom Left
+    # 5. fct_sessions - Bottom Left
     sess_x, sess_y, sess_w, sess_h = 0.04, 0.06, 0.26, 0.38
     sess_rows = [
-        "[PK] session_id",
-        "[FK] customer_id",
-        "     session_start",
-        "     session_end",
-        "     duration_seconds",
-        "     duration_minutes",
+        "[PK] session_key",
+        "     session_id (Degenerate)",
+        "[FK] customer_key",
+        "[FK] session_date_key",
+        "     session_start / _end",
         "     device_type",
         "     traffic_source",
+        "     --- Measures ---",
+        "     duration_seconds",
+        "     duration_minutes",
         "     page_views_count",
-        "     is_converted",
-        "     session_revenue"
+        "     is_converted (BIT)",
+        "     converted_order_id",
+        "     order_count",
+        "     session_attributed_revenue"
     ]
     draw_table(ax, sess_x, sess_y, sess_w, sess_h,
-               "intermediate.int_sessions", sess_rows,
-               header_color="#34495e", body_color="#f2f4f4", border_color="#2c3e50")
+               "marts.fct_sessions (Fact Table)", sess_rows,
+               header_color="#16a085", body_color="#e8f8f5", border_color="#117864")
 
     # Draw Relationship Connectors
     # dim_customers -> fct_orders
@@ -187,12 +199,20 @@ def generate_er_diagram(output_path="docs/er_diagram.png"):
     # dim_date -> fct_orders
     draw_arrow(ax, (date_x, date_y + 0.25), (fact_x + fact_w, fact_y + 0.12), "1 : N")
 
-    # int_sessions -> fct_orders
-    draw_arrow(ax, (sess_x + sess_w, sess_y + 0.25), (fact_x, fact_y + 0.12), "1 : N (Attribution)")
+    # conformed dimensions also serve the session fact
+    draw_arrow(ax, (cust_x + cust_w * 0.5, cust_y), (sess_x + sess_w * 0.5, sess_y + sess_h), "1 : N (SCD2)")
+    draw_arrow(ax, (date_x, date_y + 0.06), (sess_x + sess_w, sess_y + 0.06), "1 : N (Conformed)")
 
     # Legend / Key
     ax.text(0.04, 0.96, "● [PK] Primary Key   ● [SK] Surrogate Key   ● [FK] Foreign Key   ● SCD2 Slowly Changing Dim",
             fontsize=10, weight='bold', color="#333", bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#bdc3c7"))
+
+    # Derived marts built on top of the star
+    ax.text(0.5, -0.055,
+            "Derived marts: marts.fct_daily_sales (periodic snapshot, 1 row per trading day)  •  "
+            "marts.mart_customer_360 (1 row per customer, RFM segmentation)\n"
+            "Every dimension carries a '-1' Unknown member so a failed key lookup is never NULL",
+            ha='center', va='bottom', fontsize=9, color="#555", style='italic')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')

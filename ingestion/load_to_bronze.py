@@ -6,9 +6,12 @@ bronze landing zone (local filesystem ./data/bronze/ or MinIO S3 bucket).
 
 import os
 import json
-import yaml
 from datetime import datetime, timezone
+
 from ingestion.generate_data import generate_dataset, load_config
+from ingestion.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 def save_to_filesystem(dataset, bronze_dir="data/bronze"):
     os.makedirs(bronze_dir, exist_ok=True)
@@ -19,7 +22,7 @@ def save_to_filesystem(dataset, bronze_dir="data/bronze"):
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2, default=str)
         file_paths[entity] = file_path
-        print(f"Bronze Landed: {file_path} ({len(records)} records)")
+        logger.info("Bronze landed: %s (%s records)", file_path, len(records))
 
     # Save manifest with ingestion timestamp
     manifest_path = os.path.join(bronze_dir, "manifest.json")
@@ -59,9 +62,9 @@ def upload_to_minio(dataset, config):
         buckets = [b["Name"] for b in s3.list_buckets().get("Buckets", [])]
         if bucket_name not in buckets:
             s3.create_bucket(Bucket=bucket_name)
-            print(f"Created MinIO bucket '{bucket_name}'")
+            logger.info("Created MinIO bucket '%s'", bucket_name)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         for entity, records in dataset.items():
             key = f"landing/{timestamp}/{entity}.json"
             body = json.dumps(records, default=str).encode("utf-8")
@@ -69,11 +72,13 @@ def upload_to_minio(dataset, config):
             # Also update latest
             latest_key = f"landing/latest/{entity}.json"
             s3.put_object(Bucket=bucket_name, Key=latest_key, Body=body)
-            print(f"Uploaded to MinIO: s3://{bucket_name}/{key}")
+            logger.info("Uploaded to MinIO: s3://%s/%s", bucket_name, key)
 
         return True
-    except Exception as e:
-        print(f"Notice: MinIO upload skipped or not available ({e}). Local filesystem is active.")
+    except Exception as exc:
+        logger.warning(
+            "MinIO upload skipped or unavailable (%s). The local bronze zone is authoritative.", exc
+        )
         return False
 
 def run_bronze_landing(config_path="ingestion/config.yaml"):
@@ -88,7 +93,7 @@ def run_bronze_landing(config_path="ingestion/config.yaml"):
     if config.get("storage", {}).get("mode") == "minio" or os.getenv("MINIO_ENDPOINT"):
         upload_to_minio(dataset, config)
 
-    print("Bronze landing completed successfully.")
+    logger.info("Bronze landing completed successfully.")
     return file_paths
 
 if __name__ == "__main__":
